@@ -8,6 +8,7 @@ export interface Customer {
 }
 
 export interface CustomerInput {
+    customerId?: number;
     commName: string;
     contactPerson: string;
     phone: string;

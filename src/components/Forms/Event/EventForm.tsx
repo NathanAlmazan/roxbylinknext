@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 // next
 import Image from "next/image";
 import { useRouter } from 'next/router';
@@ -22,15 +22,30 @@ import { Event, EventInput, EventVars } from "src/types/event";
 import _ from 'lodash';
 // api
 import axios from "axios";
+import { Customer } from 'src/types/customer';
 
 interface EventFormProps {
     facilities: Facility[];
+    initialData?: {
+        purpose: string,
+        events: EventInput[],
+        facilities: string[],
+        customer: Customer
+    }
 }
 
-export default function EventForm({ facilities }: EventFormProps) {
+export default function EventForm({ facilities, initialData }: EventFormProps) {
+    
   const [events, setEvents] = useState<EventInput[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const router = useRouter();
+
+  useEffect(() => {
+    if (initialData) {
+        setEvents(state => initialData.events)
+        setSelected(state => initialData.facilities)
+    }
+  }, [initialData]);
 
   const handleAddEvent = (input: EventInput) => setEvents([ ...events, input ]);
   const handleRemoveEvent = (input: EventInput) => setEvents(events.filter(e => _.isEqual(e, input) === false));
@@ -43,20 +58,30 @@ export default function EventForm({ facilities }: EventFormProps) {
     else addSelectedFacility(code);
   }
 
+  const handleDeleteEvents = () => {
+    if (initialData) {
+        initialData.events.forEach(async (e) => {
+            await deleteEvents(e.eventId)
+        })
+
+        router.back();
+    }
+  }
+
   return (
     <Container component={Paper} elevation={8} sx={{ p: 3, mb: 8 }}>
         <Formik
             initialValues={{
-                commName: '',
-                contactPerson: '',
-                phone: '',
-                email: '',
-                street: '',
-                barangay: '',
-                city: '',
-                province: '',
-                zipcode: '',
-                purpose: '',
+                commName: initialData ? initialData.customer.commName : '',
+                contactPerson: initialData ? initialData.customer.contactPerson : '',
+                phone: initialData ? initialData.customer.phone : '',
+                email: initialData ? initialData.customer.email : '',
+                street: initialData ? initialData.customer.postAddress.split(", ")[0] : '',
+                barangay: initialData ? initialData.customer.postAddress.split(", ")[1] : '',
+                city: initialData ? initialData.customer.postAddress.split(", ")[2] : '',
+                province: initialData ? initialData.customer.postAddress.split(", ")[3] : '',
+                zipcode: initialData ? initialData.customer.postAddress.split(", ")[4] : '',
+                purpose: initialData ? initialData.purpose : '',
                 timeStart: new Date(),
                 timeEnd: new Date(),
                 eventDate: new Date(),
@@ -76,15 +101,32 @@ export default function EventForm({ facilities }: EventFormProps) {
                 participantsNum: Yup.number().min(1, "Participants cannot be 0").required("Participants is required")
             })}
             onSubmit={(values, { setErrors, setStatus, setSubmitting }) => {
-                submitNewEvent(values, events, selected).then(data => {
-                    setStatus({ success: true });
-                    setSubmitting(false);
-                    router.push("/event");
-                }).catch(err => {
+                if (events.length === 0 || selected.length === 0) {
                     setStatus({ success: false });
-                    setErrors({ submit: (err as Error).message });
+                    setErrors({ submit: "Event schedules and Event Facilities are required." });
                     setSubmitting(false);
-                })
+                }
+                else if (initialData) {
+                    updateExistingEvent(values, events, selected, initialData && initialData.customer.customerId, initialData && initialData.events).then(data => {
+                        setStatus({ success: true });
+                        setSubmitting(false);
+                        router.push("/event");
+                    }).catch(err => {
+                        setStatus({ success: false });
+                        setErrors({ submit: (err as Error).message });
+                        setSubmitting(false);
+                    })
+                } else {
+                    submitNewEvent(values, events, selected).then(data => {
+                        setStatus({ success: true });
+                        setSubmitting(false);
+                        router.push("/event");
+                    }).catch(err => {
+                        setStatus({ success: false });
+                        setErrors({ submit: (err as Error).message });
+                        setSubmitting(false);
+                    })
+                }
             }}
         >
             {({ errors, handleBlur, handleChange, handleSubmit, setFieldValue, isSubmitting, touched, values }) => (
@@ -132,8 +174,20 @@ export default function EventForm({ facilities }: EventFormProps) {
                         variant="contained"
                         size="large"
                     >
-                        Submit Event
+                        {initialData ? "Update Event" : "Submit Event"}
                     </Button>
+
+                    {initialData && (
+                         <Button
+                            disabled={isSubmitting}
+                            onClick={handleDeleteEvents}
+                            color="error"
+                            variant="outlined"
+                            size="large"
+                        >
+                            Delete Event
+                        </Button>
+                    )}
                 </Stack>
             )}
         </Formik>
@@ -159,24 +213,20 @@ interface EventFormik {
 }
 
 export async function submitNewEvent(form: EventFormik, events: EventInput[], facilities: string[]) {
-    
-
     let allEvents: EventVars[] = events.map(e => {
-        let date = new Date(e.eventDate);
-        date.setDate(date.getDate() + 1);
 
         return ({
             purpose: form.purpose,
             timeStart: new Date(e.timeStart).toString().split(" ")[4],
             timeEnd:  new Date(e.timeEnd).toString().split(" ")[4],
-            eventDate: date.toISOString().split("T")[0],
+            eventDate: new Date(e.eventDate.split("T")[0]).toISOString().split("T")[0],
             participantsNum: e.participantsNum,
             customer: {
                 commName: form.commName,
                 contactPerson: form.contactPerson,
                 phone: form.phone,
                 email: form.email,
-                postAddress: [form.street, form.barangay, form.city, form.province, form.zipcode].join(" "),
+                postAddress: [form.street, form.barangay, form.city, form.province, form.zipcode].join(", "),
             },
             facilities: facilities
     })});
@@ -190,4 +240,66 @@ export async function submitNewEvent(form: EventFormik, events: EventInput[], fa
     })
 
     return result.data as Event[];
+}
+
+export async function updateExistingEvent(form: EventFormik, events: EventInput[], facilities: string[], customerId?: number, initialEvents?: EventInput[]) {
+    let allEvents: EventVars[] = events.map(e => {
+        return ({
+            eventId: e.eventId,
+            purpose: form.purpose,
+            timeStart: new Date(e.timeStart).toString().split(" ")[4],
+            timeEnd:  new Date(e.timeEnd).toString().split(" ")[4],
+            eventDate: new Date(e.eventDate.split("T")[0]).toISOString().split("T")[0],
+            participantsNum: e.participantsNum,
+            customer: {
+                customerId: customerId,
+                commName: form.commName,
+                contactPerson: form.contactPerson,
+                phone: form.phone,
+                email: form.email,
+                postAddress: [form.street, form.barangay, form.city, form.province, form.zipcode].join(", "),
+            },
+            facilities: facilities
+    })});
+
+    const updatedEvents = allEvents.filter(e => e.eventId !== undefined)
+    const newEvents = allEvents.filter(e => e.eventId === undefined)
+
+    if (updatedEvents.length > 0) {
+        const bodyA = JSON.stringify(updatedEvents);
+
+        await axios.post(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/event/update`, bodyA, {
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+    }
+
+    if (newEvents.length > 0) {
+        const bodyB = JSON.stringify(newEvents);
+
+        await axios.post(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/event/register`, bodyB, {
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+    }
+
+    if (initialEvents) {
+        initialEvents.forEach(async (event) => {
+            if (!updatedEvents.find(e => event.eventId)) {
+                await deleteEvents(event.eventId)
+            }
+        })
+    }
+}
+
+export async function deleteEvents(eventId?: number) {
+   if (eventId) {
+    await axios.delete(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/event/delete/${eventId}`, {
+        headers: {
+            'Accept': 'application/json'
+        }
+    })
+   }
 }

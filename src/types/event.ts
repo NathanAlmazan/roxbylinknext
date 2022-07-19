@@ -12,6 +12,7 @@ export interface Event {
 }
 
 export interface EventInput {
+    eventId?: number;
     timeStart: string;
     timeEnd: string;
     eventDate: string;

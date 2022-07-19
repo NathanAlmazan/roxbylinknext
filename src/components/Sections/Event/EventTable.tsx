@@ -1,5 +1,6 @@
 import * as React from 'react';
 import Image from "next/image";
+import { useRouter } from "next/router";
 import { styled } from '@mui/material/styles';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
@@ -42,8 +43,14 @@ interface EventTableProps {
     events: Event[];
 }
 
+
+interface EventRow extends Event {
+  coEvents?: Event[];
+}
+
 export default function EventTable({ events }: EventTableProps) {
-  const [filteredEvents, setFilteredEvents] = React.useState<Event[]>(events);
+  const router = useRouter();
+  const [filteredEvents, setFilteredEvents] = React.useState<EventRow[]>([]);
   const [start, setStart] = React.useState<Date | null>(new Date());
   const [end, setEnd] = React.useState<Date | null>(new Date());
 
@@ -69,13 +76,26 @@ export default function EventTable({ events }: EventTableProps) {
     setStart(state => start);
   }, [events])
 
-
   React.useEffect(() => {
-    if (start && end) {
-        setFilteredEvents(state => events.filter(e => new Date(e.eventDate) >= start && new Date(e.eventDate) <= end))
-    }
-  }, [start, end, events])
+    let eventList: EventRow[] = [];
 
+    if (start && end) {
+      events.filter(e => new Date(e.eventDate) >= start && new Date(e.eventDate) <= end).forEach(e => {
+          const existingEvent = eventList.findIndex(f => f.customer.customerId === e.customer.customerId)
+
+          if (existingEvent !== -1) {
+            const coEvents = eventList[existingEvent].coEvents;
+
+            if (coEvents) eventList[existingEvent].coEvents = [...coEvents, e]
+            else eventList[existingEvent].coEvents = [e];
+            
+          }
+          else eventList.push(e);
+      })
+
+      setFilteredEvents(state => eventList);
+    }
+  }, [events, start, end])
 
   
   return (
@@ -118,18 +138,32 @@ export default function EventTable({ events }: EventTableProps) {
         </TableHead>
         <TableBody>
           {filteredEvents.map((row) => (
-            <StyledTableRow key={row.eventId}>
-              <StyledTableCell component="th" scope="row">
-                {row.customer.contactPerson}
-              </StyledTableCell>
-              <StyledTableCell align="right">{row.customer.commName}</StyledTableCell>
-              <StyledTableCell align="right">{"0" + row.customer.phone}</StyledTableCell>
-              <StyledTableCell align="right">{new Date(row.eventDate).toLocaleDateString()}</StyledTableCell>
-              <StyledTableCell align="right">{new Date(row.eventDate + "T" + row.timeStart).toLocaleTimeString()}</StyledTableCell>
-              <StyledTableCell align="right">{new Date(row.eventDate + "T" + row.timeEnd).toLocaleTimeString()}</StyledTableCell>
-              <StyledTableCell align="right">{row.participantsNum}</StyledTableCell>
-              <StyledTableCell align="right">{row.facilities.join(", ")}</StyledTableCell>
-            </StyledTableRow>
+            <>
+              <TableRow hover onClick={() => router.push(`/event/view/${row.eventId}`)} key={row.eventId}>
+                <StyledTableCell component="th" scope="row">
+                  {row.customer.contactPerson}
+                </StyledTableCell>
+                <StyledTableCell align="right">{row.customer.commName}</StyledTableCell>
+                <StyledTableCell align="right">{"0" + row.customer.phone}</StyledTableCell>
+                <StyledTableCell align="right">{new Date(row.eventDate).toLocaleDateString()}</StyledTableCell>
+                <StyledTableCell align="right">{new Date(row.eventDate + "T" + row.timeStart).toLocaleTimeString()}</StyledTableCell>
+                <StyledTableCell align="right">{new Date(row.eventDate + "T" + row.timeEnd).toLocaleTimeString()}</StyledTableCell>
+                <StyledTableCell align="right">{row.participantsNum}</StyledTableCell>
+                <StyledTableCell align="right">{row.facilities.join(", ")}</StyledTableCell>
+              </TableRow>
+              {row.coEvents && row.coEvents.map(coEvent => (
+                (
+                  <TableRow hover onClick={() => router.push(`/event/view/${coEvent.eventId}`)} key={coEvent.eventId}>
+                    <StyledTableCell align="right" colSpan={3} />
+                    <StyledTableCell align="right">{new Date(coEvent.eventDate).toLocaleDateString()}</StyledTableCell>
+                    <StyledTableCell align="right">{new Date(coEvent.eventDate + "T" + coEvent.timeStart).toLocaleTimeString()}</StyledTableCell>
+                    <StyledTableCell align="right">{new Date(coEvent.eventDate + "T" + coEvent.timeEnd).toLocaleTimeString()}</StyledTableCell>
+                    <StyledTableCell align="right">{coEvent.participantsNum}</StyledTableCell>
+                    <StyledTableCell align="right">{coEvent.facilities.join(", ")}</StyledTableCell>
+                  </TableRow>
+                )
+              ))}
+            </>
           ))}
 
         {filteredEvents.length === 0 && (
