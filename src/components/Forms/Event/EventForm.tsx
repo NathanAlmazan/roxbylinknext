@@ -287,7 +287,7 @@ export async function updateExistingEvent(form: EventFormik, events: EventInput[
 
     if (initialEvents) {
         initialEvents.forEach(async (event) => {
-            if (!updatedEvents.find(e => event.eventId)) {
+            if (!updatedEvents.find(e => event.eventId === e.eventId)) {
                 await deleteEvents(event.eventId)
             }
         })
